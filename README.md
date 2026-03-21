@@ -1,6 +1,6 @@
 # Arche Environment
 
-Builds and flashes a customized NVIDIA Jetson Linux image from an x86 Ubuntu host.
+Builds and flashes a customized NVIDIA Jetson Linux image from an x86 Ubuntu (or WSL) host.
 
 ```bash
 sudo ./flash.sh
