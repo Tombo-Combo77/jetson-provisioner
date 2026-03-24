@@ -267,6 +267,50 @@ fi
 echo ""
 
 # ────────────────────────────────────────────────────
+#  Phase 4b: Flash Prerequisites
+# ────────────────────────────────────────────────────
+
+echo "── Phase 4b: Flash Prerequisites ──"
+
+if [ ! -f "${STAMP_DIR}/flash-prereqs" ]; then
+    FLASH_PREREQS=(
+        abootimg binfmt-support binutils cpio cpp
+        device-tree-compiler dosfstools file gdisk
+        iproute2 iputils-ping lbzip2 libxml2-utils
+        netcat-openbsd nfs-kernel-server openssl
+        parted python3-yaml qemu-user-static rsync sshpass
+        udev usbutils uuid-runtime whois xmlstarlet xxd zstd zlib1g python3-usb
+    )
+
+    # Ubuntu version-dependent lz4 package; default to 2004 if lsb-release unavailable
+    SYSTEM_VER="$(grep "DISTRIB_RELEASE" </etc/lsb-release 2>/dev/null | cut -d= -f 2 | sed 's/\.//')"
+    SYSTEM_VER="${SYSTEM_VER:-2004}"
+    if [ "${SYSTEM_VER}" -lt 2004 ]; then
+        FLASH_PREREQS+=(liblz4-tool)
+    else
+        FLASH_PREREQS+=(lz4 python-is-python3)
+    fi
+
+    apt-get update -qq
+    apt-get install -y -qq "${FLASH_PREREQS[@]}"
+
+    MISSING_FLASH=()
+    for pkg in "${FLASH_PREREQS[@]}"; do
+        dpkg -s "${pkg}" &>/dev/null || MISSING_FLASH+=("${pkg}")
+    done
+    if [ ${#MISSING_FLASH[@]} -gt 0 ]; then
+        echo "ERROR: Failed to install: ${MISSING_FLASH[*]}" >&2
+        exit 1
+    fi
+
+    echo "applied" > "${STAMP_DIR}/flash-prereqs"
+    echo "✓ Flash prerequisites installed"
+else
+    echo "⏭ Flash prerequisites already installed"
+fi
+echo ""
+
+# ────────────────────────────────────────────────────
 #  Phase 5: Customize Rootfs
 # ────────────────────────────────────────────────────
 #  Enters a QEMU ARM64 chroot, runs each script in
