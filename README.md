@@ -16,6 +16,7 @@ sudo ./flash.sh
 | 2 | Download L4T BSP + sample rootfs |
 | 3 | Extract into `workdir/` |
 | 4 | Apply NVIDIA BSP binaries, create default user |
+| 4b | Install NVIDIA flash tool prerequisites |
 | 5 | Enter QEMU ARM64 chroot, run customization scripts |
 | 6 | Detect device, flash |
 
@@ -65,7 +66,7 @@ BOARD=jetson-agx-orin-devkit sudo ./flash.sh
 
 ## Prerequisites
 
-- Ubuntu 22.04 (native or VM)
+- Debian-based Linux host (Ubuntu 20.04 / 22.04 / 24.04 or equivalent)
 - 20GB+ free disk space
 - USB to Jetson in recovery mode (for flash step)
 
