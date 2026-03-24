@@ -23,6 +23,7 @@ The host architecture determines which side requires emulation:
 | 2 | Download L4T BSP + sample rootfs |
 | 3 | Extract into `workdir/` |
 | 4 | Apply NVIDIA BSP binaries, create default user |
+| 4b | Install NVIDIA flash tool prerequisites |
 | 5 | Enter ARM64 chroot, run customization scripts |
 | 6 | Detect device, flash |
 
