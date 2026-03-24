@@ -315,6 +315,57 @@ fi
 echo ""
 
 # ────────────────────────────────────────────────────
+#  Phase 4b: Flash Prerequisites
+# ────────────────────────────────────────────────────
+
+echo "── Phase 4b: Flash Prerequisites ──"
+
+if [ ! -f "${STAMP_DIR}/flash-prereqs" ]; then
+    FLASH_PREREQ_PKGS=(
+        abootimg binutils cpio cpp
+        device-tree-compiler dosfstools file gdisk
+        iproute2 iputils-ping lbzip2 libxml2-utils
+        netcat-openbsd nfs-kernel-server openssl
+        parted python3-yaml qemu-user-static rsync sshpass
+        udev usbutils uuid-runtime whois xmlstarlet xxd zstd zlib1g python3-usb
+    )
+
+    # binfmt-support conflicts with manual binfmt registration on aarch64
+    if [ "${HOST_ARCH}" = "x86_64" ]; then
+        FLASH_PREREQ_PKGS+=(binfmt-support)
+    fi
+
+    # Ubuntu version-dependent lz4 package (ported from l4t_flash_prerequisites.sh)
+    SYSTEM_VER="$(grep "DISTRIB_RELEASE" </etc/lsb-release 2>/dev/null | cut -d= -f 2 | cut -d. -f1-2 | sed 's/\.//')"
+    SYSTEM_VER="${SYSTEM_VER:-2004}"
+    if [ "${SYSTEM_VER}" -lt 2004 ]; then
+        FLASH_PREREQ_PKGS+=(liblz4-tool)
+    else
+        FLASH_PREREQ_PKGS+=(lz4 python-is-python3)
+    fi
+
+    echo "Installing flash prerequisites..."
+    apt-get update -qq
+    apt-get install -y -qq "${FLASH_PREREQ_PKGS[@]}"
+
+    FAILED_PKGS=()
+    for pkg in "${FLASH_PREREQ_PKGS[@]}"; do
+        dpkg -s "${pkg}" &>/dev/null || FAILED_PKGS+=("${pkg}")
+    done
+
+    if [ "${#FAILED_PKGS[@]}" -gt 0 ]; then
+        echo "ERROR: The following flash prerequisite packages failed to install: ${FAILED_PKGS[*]}" >&2
+        exit 1
+    fi
+
+    echo "applied" > "${STAMP_DIR}/flash-prereqs"
+    echo "✓ Flash prerequisites installed"
+else
+    echo "⏭ Flash prerequisites already installed"
+fi
+echo ""
+
+# ────────────────────────────────────────────────────
 #  Phase 5: Customize Rootfs
 # ────────────────────────────────────────────────────
 #  Enters an ARM64 chroot and runs each script in
