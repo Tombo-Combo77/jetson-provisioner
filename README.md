@@ -1,4 +1,4 @@
-# Arche Environment
+# Jetson Provisioner
 
 Builds and flashes a customized NVIDIA Jetson Linux image from an x86 Ubuntu (or WSL) host.
 
