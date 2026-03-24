@@ -2,7 +2,7 @@
 set -e
 
 # ════════════════════════════════════════════════════
-#  Arche Environment — Jetson Provisioning Pipeline
+#  Jetson Provisioning Pipeline
 # ════════════════════════════════════════════════════
 #  Runs the full pipeline from dependency check through
 #  flash, picking up where it left off on re-run.
