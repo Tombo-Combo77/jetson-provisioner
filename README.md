@@ -1,6 +1,6 @@
 # Jetson Provisioner
 
-Builds and flashes a customized NVIDIA Jetson Linux image from an x86 Ubuntu (or WSL) host.
+Builds and flashes a customized NVIDIA Jetson Linux image from an **x86_64** Ubuntu (or WSL) host, or directly from an **aarch64** host such as a Jetson Orin.
 
 ```bash
 sudo ./flash.sh
@@ -10,13 +10,20 @@ sudo ./flash.sh
 
 `flash.sh` runs a linear pipeline. Each phase checkpoints its work, so re-running after a failure picks up where it left off.
 
+The host architecture determines which side requires emulation:
+
+| Host | Phase 5 (rootfs customization) | Phase 6 (NVIDIA flash tools) |
+|------|-------------------------------|------------------------------|
+| x86_64 | QEMU aarch64 chroot | Native — just run it |
+| aarch64 (e.g. Jetson Orin) | Native chroot — no QEMU overhead | `qemu-i386-static` binfmt passthrough |
+
 | Phase | Description |
 |-------|-------------|
 | 1 | Install host dependencies (QEMU, binfmt, etc.) |
 | 2 | Download L4T BSP + sample rootfs |
 | 3 | Extract into `workdir/` |
 | 4 | Apply NVIDIA BSP binaries, create default user |
-| 5 | Enter QEMU ARM64 chroot, run customization scripts |
+| 5 | Enter ARM64 chroot, run customization scripts |
 | 6 | Detect device, flash |
 
 ### Failure recovery
@@ -43,7 +50,7 @@ scripts/
     └── run.sh        # disable unneeded services
 ```
 
-Each `run.sh` runs inside an ARM64 chroot. Scripts execute in sort order and must be **idempotent** — the stamp system skips unchanged scripts, and changed scripts are re-applied.
+Each `run.sh` runs inside an ARM64 chroot. On x86_64 hosts, QEMU provides the emulation; on aarch64 hosts the chroot runs natively. Scripts execute in sort order and must be **idempotent** — the stamp system skips unchanged scripts, and changed scripts are re-applied.
 
 Available inside scripts: `DEFAULT_USERNAME`, `DEBIAN_FRONTEND=noninteractive`, full `apt` and `systemctl enable/disable`.
 
@@ -65,9 +72,10 @@ BOARD=jetson-agx-orin-devkit sudo ./flash.sh
 
 ## Prerequisites
 
-- Ubuntu 22.04 (native or VM)
+- Ubuntu 22.04 (native, VM, or Jetson Orin aarch64)
 - 20GB+ free disk space
 - USB to Jetson in recovery mode (for flash step)
+- Root privileges (`sudo`) — required for chroot, mounts, and (on aarch64 hosts) writing to `binfmt_misc` and disabling USB autosuspend
 
 Host packages are installed automatically.
 

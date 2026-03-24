@@ -14,6 +14,8 @@ set -e
 
 source "$(dirname "$0")/config.sh"
 
+HOST_ARCH="$(uname -m)"  # x86_64 or aarch64
+
 if [ "$EUID" -ne 0 ]; then
     echo "ERROR: Must be run as root (sudo ./flash.sh)" >&2
     exit 1
@@ -55,9 +57,11 @@ QEMU_COPIED=false
 setup_chroot() {
     local rootfs="$1"
 
-    # Copy QEMU binary for ARM64 emulation
-    cp /usr/bin/qemu-aarch64-static "${rootfs}/usr/bin/"
-    QEMU_COPIED=true
+    if [ "${HOST_ARCH}" = "x86_64" ]; then
+        # Copy QEMU binary for ARM64 emulation (only needed on x86 hosts)
+        cp /usr/bin/qemu-aarch64-static "${rootfs}/usr/bin/"
+        QEMU_COPIED=true
+    fi
 
     # Block service starts during package installs
     printf '#!/bin/bash\nexit 101\n' > "${rootfs}/usr/sbin/policy-rc.d"
@@ -104,13 +108,13 @@ SHIM
         mount --bind /etc/resolv.conf "${rootfs}/etc/resolv.conf"
     fi
 
-    # Verify emulation works
+    # Verify chroot works
     if ! chroot "${rootfs}" /bin/bash -c "uname -m" 2>/dev/null | grep -q aarch64; then
-        echo "ERROR: ARM64 emulation failed" >&2
+        echo "ERROR: aarch64 chroot failed" >&2
         exit 1
     fi
 
-    echo "✓ Chroot ready"
+    echo "✓ Chroot ready (host: ${HOST_ARCH})"
 }
 
 teardown_chroot() {
@@ -120,8 +124,8 @@ teardown_chroot() {
     [ -f "${rootfs}/bin/systemctl.orig" ] && \
         mv "${rootfs}/bin/systemctl.orig" "${rootfs}/bin/systemctl" 2>/dev/null || true
 
-    # Restore mandb (requires QEMU still present)
-    if [ -f "${rootfs}/usr/bin/qemu-aarch64-static" ]; then
+    # Restore mandb (requires chroot execution to be available)
+    if [ "${QEMU_COPIED}" = "true" ] || [ "${HOST_ARCH}" = "aarch64" ]; then
         rm -f "${rootfs}/usr/bin/mandb" 2>/dev/null || true
         chroot "${rootfs}" /usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin \
             dpkg-divert --rename --remove /usr/bin/mandb 2>/dev/null || true
@@ -149,6 +153,44 @@ run_in_chroot() {
         /bin/bash -c "$1"
 }
 
+# Register qemu-i386 binfmt for running NVIDIA flash tools on aarch64 hosts
+setup_x86_binfmt() {
+    # Mount binfmt_misc if not already mounted
+    if ! mountpoint -q /proc/sys/fs/binfmt_misc; then
+        echo "Mounting binfmt_misc..."
+        mount -t binfmt_misc binfmt_misc /proc/sys/fs/binfmt_misc
+    fi
+
+    if [ ! -w /proc/sys/fs/binfmt_misc/register ]; then
+        echo "⚠ binfmt_misc not writable — flash tools may fail on aarch64" >&2
+        return
+    fi
+
+    # Unregister stale entry if present
+    [ -e /proc/sys/fs/binfmt_misc/qemu-i386 ] && \
+        echo -1 > /proc/sys/fs/binfmt_misc/qemu-i386
+
+    # ELF magic + mask for i386 (32-bit x86) binaries — matches NVIDIA flash tool ELFs
+    printf '%s' \
+        ':qemu-i386:M::\x7fELF\x01\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x00\x03\x00:' \
+        '\xff\xff\xff\xff\xff\xfe\xfe\xff\xff\xff\xff\xff\xff\xff\xff\xff\xfe\xff\xff\xff:' \
+        '/usr/bin/qemu-i386-static:' \
+        > /proc/sys/fs/binfmt_misc/register
+
+    # Disable USB autosuspend — critical for flash reliability on aarch64 hosts
+    if [ -w /sys/module/usbcore/parameters/autosuspend ]; then
+        if echo -1 > /sys/module/usbcore/parameters/autosuspend; then
+            echo "✓ USB autosuspend disabled ($(cat /sys/module/usbcore/parameters/autosuspend))"
+        else
+            echo "⚠ Could not disable USB autosuspend — continuing"
+        fi
+    else
+        echo "⚠ Could not disable USB autosuspend — continuing"
+    fi
+
+    echo "✓ i386 binfmt registered (aarch64 host → NVIDIA flash tools)"
+}
+
 # ────────────────────────────────────────────────────
 #  Phase 1: Host Dependencies
 # ────────────────────────────────────────────────────
@@ -165,6 +207,12 @@ REQUIRED_PKGS=(
 if grep -qiE 'microsoft|wsl' /proc/version 2>/dev/null; then
     echo "✓ WSL detected"
     REQUIRED_PKGS+=(linux-tools-generic hwdata)
+fi
+
+if [ "${HOST_ARCH}" = "aarch64" ]; then
+    # On aarch64 hosts: need qemu-i386-static to run NVIDIA flash tools (i386 ELFs)
+    # binfmt-support not required — we register manually via setup_x86_binfmt()
+    REQUIRED_PKGS+=(qemu-user-static)
 fi
 
 MISSING=()
@@ -269,11 +317,14 @@ echo ""
 # ────────────────────────────────────────────────────
 #  Phase 5: Customize Rootfs
 # ────────────────────────────────────────────────────
-#  Enters a QEMU ARM64 chroot, runs each script in
-#  scripts/ in sorted order. Stamps track which have
-#  been applied — unchanged scripts are skipped,
-#  changed scripts are re-applied. On failure, fix
-#  the script and re-run; stamped scripts are skipped.
+#  Enters an ARM64 chroot and runs each script in
+#  scripts/ in sorted order. On x86_64 hosts, QEMU
+#  provides ARM64 emulation; on aarch64 hosts the
+#  chroot runs natively with no emulation overhead.
+#  Stamps track which scripts have been applied —
+#  unchanged scripts are skipped, changed scripts are
+#  re-applied. On failure, fix the script and re-run;
+#  stamped scripts are skipped.
 #  For a clean slate: sudo ./flash.sh --clean
 # ────────────────────────────────────────────────────
 
@@ -375,6 +426,10 @@ fi
 echo ""
 echo "Flashing... (do not disconnect)"
 echo ""
+
+if [ "${HOST_ARCH}" = "aarch64" ]; then
+    setup_x86_binfmt
+fi
 
 cd "${WORK_DIR}"
 eval "${FLASH_CMD}"
