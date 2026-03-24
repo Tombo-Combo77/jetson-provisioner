@@ -72,7 +72,7 @@ BOARD=jetson-agx-orin-devkit sudo ./flash.sh
 
 ## Prerequisites
 
-- Ubuntu 22.04 (native, VM, or Jetson Orin aarch64)
+- Ubuntu Preferred
 - 20GB+ free disk space
 - USB to Jetson in recovery mode (for flash step)
 - Root privileges (`sudo`) — required for chroot, mounts, and (on aarch64 hosts) writing to `binfmt_misc` and disabling USB autosuspend
